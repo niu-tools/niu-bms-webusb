@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="theme-color" content="#0f1419"/>
+<title>NIU BMS USB</title>
+<style>
+:root{--bg:#0f1419;--card:#1a2332;--line:#2a3548;--text:#e7ecf3;--muted:#8b9cb3;--accent:#3b82f6;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.45}
+.wrap{max-width:960px;margin:0 auto;padding:1rem 1rem 2rem}
+h1{font-size:1.35rem;font-weight:600;margin:0 0 .25rem}
+.sub{color:var(--muted);font-size:.9rem;margin:0 0 1rem}
+.bar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:.75rem}
+.batbar{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.75rem;margin-bottom:1rem}
+.batbar select#bat{flex:1 1 14rem;min-width:0;font-size:1rem;padding:.5rem .6rem}
+.view{font-size:.85rem;color:var(--muted);margin:.25rem 0 0}
+.grid{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:1rem}
+.card{background:var(--card);border-radius:10px;padding:.85rem 1rem;border:1px solid var(--line)}
+.card .lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.card .val{font-size:1.35rem;font-weight:600;margin-top:.2rem;font-variant-numeric:tabular-nums}
+.card .val.sm{font-size:1rem}
+.card .unit{font-size:.85rem;color:var(--muted);font-weight:400}
+.card .note{font-size:.78rem;color:var(--muted);margin-top:.15rem;font-variant-numeric:tabular-nums}
+h2{font-size:1rem;margin:1.25rem 0 .5rem;color:var(--muted);font-weight:600}
+.cell-table{width:100%;max-width:32rem;border-collapse:collapse;font-size:.9rem;background:var(--card);border-radius:10px;overflow:hidden;border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.cell-table th,.cell-table td{padding:.42rem .6rem;text-align:right;border-bottom:1px solid var(--line)}
+.cell-table th:first-child,.cell-table td:first-child{text-align:left;color:var(--muted);width:2.2rem}
+.cell-table th{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;background:#151c28}
+.cell-table tr:last-child td{border-bottom:0}
+.cell-table td.now{font-weight:600}
+.cell-table td.dim{color:var(--muted)}
+.cell-table tr.cell-min td{background:rgba(6,182,212,.12)}.cell-table tr.cell-min td.now{color:#22d3ee}
+.cell-table tr.cell-max td{background:rgba(234,179,8,.12)}.cell-table tr.cell-max td.now{color:#facc15}
+.cell-summary{margin-top:.75rem;max-width:32rem;padding:.65rem .85rem;background:var(--card);border-radius:8px;border:1px solid var(--line);color:#d8b4fe;font-weight:500;font-size:.88rem;font-variant-numeric:tabular-nums}
+.chart{background:var(--card);border-radius:10px;border:1px solid var(--line);padding:.6rem .75rem .4rem;margin-bottom:.75rem}
+.chart .lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);display:flex;gap:.75rem;flex-wrap:wrap}
+.chart .now{margin-left:auto;color:var(--text);font-weight:600;text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums}
+.chart canvas{display:block;width:100%;height:190px}
+.key{display:inline-block;width:.7rem;height:.2rem;border-radius:2px;vertical-align:middle;margin-right:.25rem}
+.meta{font-size:.85rem;color:var(--muted)}.err{color:var(--bad)}.stale{color:var(--warn)}.okc{color:var(--ok)}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:.5rem 1rem;font-size:.9rem;cursor:pointer}
+button:disabled{opacity:.5}
+select,button.sec{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:.4rem .6rem;font-size:.85rem}
+details{margin-top:1rem}summary{cursor:pointer;color:var(--muted);font-size:.85rem}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.6rem;font-size:.75rem;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+.health{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--muted);border-radius:10px;padding:.75rem .9rem;margin-bottom:1rem}
+.health .verdict{font-weight:700;font-size:1.05rem}
+.health .summary{margin:.15rem 0 0;font-size:.92rem}
+.health ul{margin:.5rem 0 0;padding:0;list-style:none;font-size:.88rem}
+.health li{padding-left:1.1rem;text-indent:-1.1rem}
+.health li{margin:.2rem 0}
+.health li b{font-weight:600}
+.health .fine{font-size:.75rem;color:var(--muted);margin-top:.5rem}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>NIU battery BMS</h1>
+<p class="sub">USB-RS485 dongle (CP2102) via WebUSB · 9600 8E1 · N1S protocol</p>
+
+<div class="bar">
+<button id="connect" type="button">Connect dongle</button>
+<button id="disconnect" class="sec hidden" type="button">Disconnect</button>
+<span id="status" class="meta">Not connected</span>
+</div>
+<p id="unsupported" class="err hidden">This browser has no WebUSB. Use Chrome on Android (with a USB OTG adapter) or desktop Chrome/Edge.</p>
+
+<div class="batbar">
+<div class="bar" style="margin:0">
+<select id="bat" title="Battery"></select>
+<button class="sec" id="rename" type="button">Rename</button>
+<select id="range" title="Time range for statistics and charts">
+<option value="900000">15 min</option><option value="3600000">1 h</option><option value="21600000">6 h</option>
+<option value="86400000">24 h</option><option value="604800000">7 days</option><option value="0" selected>All</option>
+</select>
+</div>
+<p class="view" id="view"></p>
+</div>
+
+<div class="health hidden" id="health"></div>
+<div class="grid" id="metrics"></div>
+
+<h2>Cell voltages</h2>
+<div id="cells"><p class="meta">Connect the dongle to the phone, then tap “Connect dongle”.</p></div>
+
+<h2>Statistics <span class="meta" id="statRange"></span></h2>
+<div class="grid" id="stats"><p class="meta">No readings stored for this battery yet.</p></div>
+
+<h2>Voltage over time</h2>
+<div class="chart"><div class="lbl"><span>Pack voltage (V)</span><span><i class="key" style="background:#3b82f6"></i>BMS</span><span><i class="key" style="background:#22c55e"></i>Σ cells</span><span class="now" id="nowPack"></span></div><canvas id="chPack"></canvas></div>
+<div class="chart"><div class="lbl"><span>Cell voltages (V)</span><span id="cellKey"></span><span class="now" id="nowCells"></span></div><canvas id="chCells"></canvas></div>
+<div class="chart"><div class="lbl"><span>Cell Δ (mV)</span><span><i class="key" style="background:var(--ok)"></i>&lt;50 good</span><span><i class="key" style="background:var(--warn)"></i>50–100 med</span><span><i class="key" style="background:var(--bad)"></i>&gt;100 bad</span><span class="now" id="nowDelta"></span></div><canvas id="chDelta"></canvas></div>
+
+<h2>Identity</h2>
+<p class="meta" id="identity">—</p>
+<div class="bar">
+<button class="sec" id="csv" type="button">Export CSV</button>
+<button class="sec" id="clr" type="button">Clear history</button>
+</div>
+<details><summary>Raw payloads (hex, last live read)</summary><pre id="raw">—</pre></details>
+</div>
+
+<script>
+// ---------- N1S protocol (same as scripts/niu_bms.py) ----------
+const PACK_CELLS=17,CELL_V_EMPTY=3.0,CELL_V_FULL=4.2;
+const DGOOD=0.05,DMED=0.1; // balance thresholds, same as niu_bms.py
+const POLL_MS=3000;
+const PREFIX=[0xfe,0xfe,0xfe,0xfe,0x68,0x31,0xce,0x68,0x02,0x02];
+const HDR=[0x68,0x31,0xce,0x68,0x82];
+const CMD={
+  pack:[0x60,0x42,0x75],cells:[0x6f,0x5b,0x9d],serial:[0x3c,0x43,0x52],
+  hwsw:[0x35,0x35,0x3d],cycles:[0x5c,0x46,0x75]
+};
+// Each byte is masked with +0x33 (mod 256): unmask per byte, never per word
+const unmask=b=>(b-0x33)&0xff;
+const u16=(p,o)=>(unmask(p[o])<<8)|unmask(p[o+1]);
+const s16=(p,o)=>{const w=u16(p,o);return w&0x8000?w-0x10000:w};
+
+function parseFrame(rx){
+  for(let i=0;i+HDR.length+2<rx.length;i++){
+    let m=true;for(let k=0;k<HDR.length;k++)if(rx[i+k]!==HDR[k]){m=false;break}
+    if(!m)continue;
+    const ln=rx[i+HDR.length],start=i+HDR.length+1,end=start+ln+2;
+    if(end>rx.length||rx[end-1]!==0x16)continue;
+    return rx.slice(start,end);
+  }
+  return null;
+}
+function decodePack(p){
+  const o={pack_v:null,current_a:null,soc:null,time_remain:null};
+  if(!p||p.length<8)return o;
+  o.pack_v=u16(p,0)/10;
+  o.current_a=s16(p,2)/10;
+  let soc=(p[4]===0x33&&p.length>6&&p[6]!==0x33)?p[6]-0x33:p[4]-0x33;
+  if(soc<0||soc>100){soc=null;for(let i=2;i<Math.min(14,p.length);i++){const s=p[i]-0x33;if(s>=0&&s<=100){soc=s;break}}}
+  o.soc=soc;
+  if(p.length>6){const tr=p[6]-0x33;if(tr>=0&&tr<=200)o.time_remain=tr/10}
+  return o;
+}
+function decodeCells(p){
+  const out=[];
+  for(let i=0;i<PACK_CELLS;i++){
+    if(!p||i*2+2>p.length){out.push(null);continue}
+    const v=u16(p,i*2)/1000;
+    out.push(v<2.5||v>4.35?null:v);
+  }
+  return out;
+}
+function decodeSerial(p){
+  if(!p)return null;
+  let s='';for(let i=0;i<Math.min(16,p.length);i++){const c=p[i]-0x33;s+=(c>=32&&c<=126)?String.fromCharCode(c):'?'}
+  s=s.replace(/^\?+|\?+$/g,'');
+  return /^[A-Za-z0-9]{8,16}$/.test(s)?s:null;
+}
+function decodeHwsw(p){
+  if(!p||p.length<2)return{sw:null,hw:null};
+  const f=b=>{const v=b-0x33;return `${Math.floor(v/16)}.${v%16}`};
+  return{sw:f(p[0]),hw:f(p[1])};
+}
+function decodeCycles(p){
+  if(!p||p.length<4)return null;
+  const c=u16(p,2);return c>50000?null:c;
+}
+function collectTemps(...pls){
+  let best=[null,null,null,null],bc=-1;
+  for(const p of pls){if(!p)continue;
+    for(const st of[11,7,15]){if(st+4>p.length)continue;
+      const slot=[];for(let i=0;i<4;i++){const t=p[st+i]-0x33;slot.push(t>=10&&t<=60?t:null)}
+      const n=slot.filter(t=>t!=null).length;if(n>bc){bc=n;best=slot}}}
+  return best;
+}
+const hex=p=>p?Array.from(p,b=>b.toString(16).padStart(2,'0')).join(' '):'—';
+
+// ---------- CP210x over WebUSB ----------
+// Vendor requests from Silicon Labs AN571
+class Cp210x{
+  constructor(dev){this.dev=dev;this.buf=[];this.reading=false}
+  async open(){
+    const d=this.dev;
+    await d.open();
+    if(!d.configuration)await d.selectConfiguration(1);
+    const itf=d.configuration.interfaces[0];
+    this.ifn=itf.interfaceNumber;
+    await d.claimInterface(this.ifn);
+    const eps=itf.alternate.endpoints;
+    this.epIn=eps.find(e=>e.direction==='in').endpointNumber;
+    this.epOut=eps.find(e=>e.direction==='out').endpointNumber;
+    await this.ctl(0x00,0x0001);                // IFC_ENABLE
+    const b=new ArrayBuffer(4);new DataView(b).setUint32(0,9600,true);
+    await this.ctl(0x1e,0,b);                   // SET_BAUDRATE 9600
+    await this.ctl(0x03,0x0800|0x0020|0x0000);  // SET_LINE_CTL: 8 data, even parity, 1 stop
+    await this.ctl(0x07,0x0303);                // SET_MHS: DTR+RTS on
+    await this.ctl(0x12,0x000f);                // PURGE rx/tx
+    this.readLoop();
+  }
+  ctl(request,value,data){
+    const s={requestType:'vendor',recipient:'interface',request,value,index:this.ifn};
+    return data?this.dev.controlTransferOut(s,data):this.dev.controlTransferOut(s);
+  }
+  async readLoop(){
+    this.reading=true;
+    while(this.reading){
+      try{
+        const r=await this.dev.transferIn(this.epIn,64);
+        if(r.data)for(let i=0;i<r.data.byteLength;i++)this.buf.push(r.data.getUint8(i));
+      }catch(e){if(this.reading){this.reading=false;this.onlost&&this.onlost(e)}break}
+    }
+  }
+  write(bytes){return this.dev.transferOut(this.epOut,new Uint8Array(bytes))}
+  async close(){
+    this.reading=false;
+    try{await this.ctl(0x00,0x0000)}catch(e){}
+    try{await this.dev.releaseInterface(this.ifn)}catch(e){}
+    try{await this.dev.close()}catch(e){}
+  }
+}
+const CP210X_FILTERS=[{vendorId:0x10c4,productId:0xea60},{vendorId:0x10c4,productId:0xea70},{vendorId:0x10c4,productId:0xea71}];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+let port=null,polling=false,live=null,prevSerial=null,prevPollOk=false,wakeLock=null;
+
+async function transact(cmd,timeoutMs=1200){
+  port.buf.length=0;
+  await port.write([...PREFIX,...cmd,0x16]);
+  const t0=performance.now();
+  while(performance.now()-t0<timeoutMs){
+    await sleep(25);
+    const pl=parseFrame(port.buf);
+    if(pl)return pl;
+  }
+  return null;
+}
+
+async function readBms(){
+  const raw={};
+  for(const k of Object.keys(CMD)){
+    raw[k]=await transact(CMD[k]);
+    await sleep(40);
+    if(k==='pack'&&!raw.pack)break; // no reply: don't wait on the rest
+  }
+  const j={ok:!!(raw.pack&&raw.cells),t:Date.now(),raw};
+  if(!j.ok){j.error=raw.pack?'cell read failed':'no reply from BMS (check A/B/GND on the battery plug)';return j}
+  Object.assign(j,decodePack(raw.pack));
+  const cv=decodeCells(raw.cells);
+  j.cells=cv;
+  const vals=cv.filter(v=>v!=null);
+  j.cell_sum=vals.reduce((a,b)=>a+b,0);
+  j.v_min=Math.min(...vals);j.v_max=Math.max(...vals);
+  j.cell_delta=j.v_max-j.v_min;
+  j.soc_est=Math.max(0,Math.min(100,(j.v_min-CELL_V_EMPTY)/(CELL_V_FULL-CELL_V_EMPTY)*100));
+  j.temps=collectTemps(raw.pack,raw.cycles).filter(t=>t!=null);
+  j.cycles=decodeCycles(raw.cycles);
+  Object.assign(j,decodeHwsw(raw.hwsw));
+  // A battery swap needs an unplug, which fails at least one poll: only then may the serial change unseen
+  j.serial_bms=decodeSerial(raw.serial)||(prevPollOk?prevSerial:null);
+  return j;
+}
+
+async function pollLoop(){
+  polling=true;
+  while(polling&&port){
+    const t0=Date.now();
+    let j;
+    try{j=await readBms()}catch(e){j={ok:false,error:'USB error: '+e.message,t:Date.now()}}
+    if(!polling)break;
+    prevPollOk=j.ok;
+    onReading(j);
+    await sleep(Math.max(200,POLL_MS-(Date.now()-t0)));
+  }
+}
+
+async function connect(dev){
+  if(port)return;
+  setStatus('Opening dongle…');
+  const p=new Cp210x(dev);
+  try{await p.open()}catch(e){
+    setStatus(`<span class="err">Could not open dongle: ${esc(e.message)}</span>`);
+    try{await dev.close()}catch(_){}
+    return;
+  }
+  port=p;
+  p.onlost=()=>disconnect('Dongle unplugged');
+  document.getElementById('connect').classList.add('hidden');
+  document.getElementById('disconnect').classList.remove('hidden');
+  setStatus('Connected · reading BMS…');
+  keepAwake();
+  pollLoop();
+}
+async function disconnect(msg){
+  polling=false;
+  const p=port;port=null;prevPollOk=false;live=null;curSn=null;
+  if(p)await p.close();
+  releaseAwake();
+  document.getElementById('connect').classList.remove('hidden');
+  document.getElementById('disconnect').classList.add('hidden');
+  setStatus(msg||'Not connected');
+  fillBatSel();refresh();
+}
+async function keepAwake(){
+  try{if('wakeLock' in navigator&&!wakeLock){wakeLock=await navigator.wakeLock.request('screen');wakeLock.onrelease=()=>{wakeLock=null}}}catch(e){}
+}
+function releaseAwake(){try{wakeLock&&wakeLock.release()}catch(e){}wakeLock=null}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&port)keepAwake()});
+
+// ---------- Storage: IndexedDB, per battery (BMS serial), kept until the user clears it ----------
+// readings: {sn, t, ...entry} indexed by [sn,t]; meta: {sn, alias, sw, hw, ok, fail, lastT}
+// Nothing is ever deleted automatically. If a write fails (storage full) the reading is
+// dropped and the user is told; old data is never trimmed to make room.
+const GAP=300000,CHART_PTS=1200;
+let db=null,metas={},storageErr=null;
+let curSn=null,viewSn=null,userPicked=false,hist=[];
+const idbReq=r=>new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const idbTx=tx=>new Promise((res,rej)=>{tx.oncomplete=()=>res();tx.onerror=tx.onabort=()=>rej(tx.error||new Error('transaction aborted'))});
+function openDb(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open('niu-bms',1);
+    r.onupgradeneeded=()=>{
+      const d=r.result;
+      d.createObjectStore('readings',{autoIncrement:true}).createIndex('sn_t',['sn','t']);
+      d.createObjectStore('meta',{keyPath:'sn'});
+    };
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+  });
+}
+async function loadMetas(){
+  const all=await idbReq(db.transaction('meta').objectStore('meta').getAll());
+  metas={};for(const m of all)metas[m.sn]=m;
+}
+const loadMeta=sn=>metas[sn]||(metas[sn]={sn});
+function saveMeta(m){
+  metas[m.sn]=m;
+  const tx=db.transaction('meta','readwrite');tx.objectStore('meta').put(m);
+  return idbTx(tx).catch(e=>{storageErr=e.message});
+}
+async function loadHist(sn){
+  const idx=db.transaction('readings').objectStore('readings').index('sn_t');
+  return idbReq(idx.getAll(IDBKeyRange.bound([sn,-Infinity],[sn,Infinity])));
+}
+async function addReading(sn,e,m){
+  const tx=db.transaction(['readings','meta'],'readwrite');
+  tx.objectStore('readings').add(Object.assign({sn},e));
+  tx.objectStore('meta').put(m);
+  await idbTx(tx);
+}
+async function clearReadings(sn){
+  const tx=db.transaction('readings','readwrite');
+  const idx=tx.objectStore('readings').index('sn_t');
+  idx.openKeyCursor(IDBKeyRange.bound([sn,-Infinity],[sn,Infinity])).onsuccess=ev=>{
+    const c=ev.target.result;if(c){tx.objectStore('readings').delete(c.primaryKey);c.continue()}
+  };
+  await idbTx(tx);
+}
+// One-time move of the earlier localStorage format; old keys are removed only after the copy commits
+async function migrateLocalStorage(){
+  let keys=[];
+  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i)||'';if(k.startsWith('niuBms'))keys.push(k)}}catch(e){return}
+  for(const k of keys){
+    try{
+      const v=JSON.parse(localStorage.getItem(k));
+      if(k.startsWith('niuBmsHist:')&&Array.isArray(v)&&v.length){
+        const sn=k.slice(11),m=Object.assign(loadMeta(sn),{});
+        m.lastT=Math.max(m.lastT||0,v[v.length-1].t);
+        const tx=db.transaction(['readings','meta'],'readwrite');
+        for(const e of v)tx.objectStore('readings').add(Object.assign({sn},e));
+        tx.objectStore('meta').put(m);
+        await idbTx(tx);metas[sn]=m;
+      }else if(k.startsWith('niuBmsMeta:')&&v){
+        const sn=k.slice(11);await saveMeta(Object.assign(loadMeta(sn),v,{sn}));
+      }
+      localStorage.removeItem(k);
+    }catch(e){/* keep the key, retry on next load */}
+  }
+}
+async function storageInfo(){
+  let persisted=null,used=null,quota=null;
+  try{persisted=await navigator.storage.persisted()}catch(e){}
+  try{const est=await navigator.storage.estimate();used=est.usage;quota=est.quota}catch(e){}
+  return{persisted,used,quota};
+}
+async function askPersist(){
+  try{if(navigator.storage&&!(await navigator.storage.persisted()))await navigator.storage.persist()}catch(e){}
+}
+const knownSns=()=>Object.keys(metas);
+const nameOf=sn=>(metas[sn]&&metas[sn].alias)||sn;
+// Readings store cells as mV integers (field m); early entries used volts (field c)
+const cellsOf=e=>e.m?e.m.map(x=>x==null?null:x/1000):(e.c||[]);
+function toEntry(j){
+  const r3=v=>v==null?null:Math.round(v*1000)/1000;
+  return{t:j.t,p:j.pack_v,s:r3(j.cell_sum),d:r3(j.cell_delta),m:j.cells.map(v=>v==null?null:Math.round(v*1000)),
+    i:j.current_a,soc:j.soc,se:j.soc_est==null?null:Math.round(j.soc_est*10)/10,tr:j.time_remain,tp:j.temps,cy:j.cycles};
+}
+function fromEntry(e){
+  const cells=cellsOf(e),vals=cells.filter(v=>v!=null);
+  return{ok:true,t:e.t,pack_v:e.p,cell_sum:e.s,cell_delta:e.d,cells,
+    v_min:vals.length?Math.min(...vals):null,v_max:vals.length?Math.max(...vals):null,
+    current_a:e.i,soc:e.soc,soc_est:e.se,time_remain:e.tr,temps:e.tp||[],cycles:e.cy};
+}
+
+async function onReading(j){
+  if(j.ok&&j.serial_bms){
+    const isNew=j.serial_bms!==curSn;
+    curSn=j.serial_bms;live=j;
+    if(isNew&&!userPicked){viewSn=curSn;hist=await loadHist(curSn)}
+    const e=toEntry(j);
+    const m=Object.assign({},loadMeta(curSn));
+    m.ok=(m.ok||0)+1;m.lastT=j.t;if(j.sw)m.sw=j.sw;if(j.hw)m.hw=j.hw;
+    try{await addReading(curSn,e,m);metas[curSn]=m;storageErr=null;if(curSn===viewSn)hist.push(e)}
+    catch(err){storageErr=err.message||String(err)}
+    if(isNew)fillBatSel();
+    setStatus(`<span class="okc">Connected</span> · ${esc(nameOf(curSn))} · last read ${fmtTime(j.t)}`
+      +(storageErr?` · <span class="err">NOT SAVED: ${esc(storageErr)} — export CSV and free space</span>`:''));
+  }else{
+    if(curSn){const m=Object.assign({},loadMeta(curSn));m.fail=(m.fail||0)+1;saveMeta(m)}
+    const err=j.ok?'no battery serial in reply, reading not stored':j.error;
+    const age=live?` · last good read ${Math.round((Date.now()-live.t)/1000)}s ago`:'';
+    setStatus(`<span class="err">${esc(err)}</span>${age}`);
+  }
+  if(j.raw)document.getElementById('raw').textContent=Object.keys(CMD).map(k=>`${k.padEnd(7)} ${hex(j.raw[k])}`).join('\n');
+  refresh();
+}
+
+// ---------- UI ----------
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=(v,d)=>v==null||Number.isNaN(v)||!isFinite(v)?'—':Number(v).toFixed(d);
+const setStatus=h=>{document.getElementById('status').innerHTML=h};
+const fmtTime=t=>new Date(t).toLocaleTimeString([],{hour12:false});
+const fmtDT=t=>new Date(t).toLocaleString([],{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+function fmtDur(ms){
+  if(ms==null||ms<0)return'—';
+  let s=Math.round(ms/1000);const d=Math.floor(s/86400);s%=86400;const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);s%=60;
+  return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:m?`${m}m ${s}s`:`${s}s`;
+}
+function rateDelta(d){
+  if(d==null)return null;
+  if(d<DGOOD)return{k:'GOOD',c:'var(--ok)',h:'cells well balanced'};
+  if(d<=DMED)return{k:'MED',c:'var(--warn)',h:'slight imbalance, let the BMS balance at full charge'};
+  return{k:'BAD',c:'var(--bad)',h:'imbalance, check the weakest cell'};
+}
+const card=(lbl,val,unit,note,style)=>`<div class="card"><div class="lbl">${lbl}</div><div class="val${style&&style.sm?' sm':''}"${style&&style.c?` style="color:${style.c}"`:''}>${val}${unit?`<span class="unit"> ${unit}</span>`:''}</div>${note?`<div class="note">${note}</div>`:''}</div>`;
+
+function fillBatSel(){
+  const sns=knownSns();
+  if(curSn&&!sns.includes(curSn))sns.push(curSn);
+  sns.sort((a,b)=>nameOf(a).localeCompare(nameOf(b)));
+  const sel=document.getElementById('bat');
+  sel.innerHTML=sns.length
+    ?sns.map(s=>{const a=metas[s]&&metas[s].alias;
+      return `<option value="${esc(s)}"${s===viewSn?' selected':''}>${esc(a?`${a} · ${s}`:s)}${s===curSn?' ● connected':''}</option>`}).join('')
+    :'<option value="">No battery yet</option>';
+  document.getElementById('rename').disabled=!viewSn;
+}
+async function selectBattery(sn){
+  viewSn=sn||null;fillBatSel();
+  const h=viewSn?await loadHist(viewSn):[];
+  if(viewSn===(sn||null))hist=h; // ignore a slow load if the user switched again
+  refresh();
+}
+
+function rangeHist(){
+  const rng=+document.getElementById('range').value,now=Date.now();
+  return rng?hist.filter(p=>now-p.t<=rng):hist;
+}
+
+function refresh(){
+  const h=rangeHist();
+  const isLive=!!(viewSn&&viewSn===curSn&&live);
+  const j=isLive?live:(hist.length?fromEntry(hist[hist.length-1]):null);
+  const view=document.getElementById('view');
+  if(!viewSn)view.textContent='No battery selected yet. Connect the dongle to a battery.';
+  else if(isLive)view.innerHTML=`<span class="okc">● Live</span> · ${esc(viewSn)}`;
+  else view.innerHTML=j?`<span class="stale">Not connected</span> · showing last stored reading from ${fmtDT(j.t)} · ${esc(viewSn)}`
+    :`<span class="stale">Not connected</span> · no stored readings · ${esc(viewSn)}`;
+  renderHealth(j,h);
+  renderMetrics(j);
+  renderCells(j,h);
+  renderStats(h);
+  renderIdentity(j);
+  drawCharts(h);
+}
+
+// Rule-based health check from the shown reading (j) and the stored readings in range (h).
+// Voltage/temperature based only: it cannot measure capacity or internal resistance.
+function assessHealth(j,h){
+  const out=[]; // {lvl:0 ok,1 warn,2 bad, msg, act}
+  const cells=(j.cells||[]).map((v,i)=>({v,n:i+1})).filter(c=>c.v!=null);
+  if(!cells.length)return out;
+  const atRest=j.current_a==null||Math.abs(j.current_a)<1;
+  const lo=cells.reduce((a,b)=>b.v<a.v?b:a),hi=cells.reduce((a,b)=>b.v>a.v?b:a);
+  const mean=cells.reduce((a,c)=>a+c.v,0)/cells.length;
+  const dmv=Math.round(j.cell_delta*1000);
+  const T=(j.temps||[]).filter(t=>t!=null);
+  const cold=T.length&&Math.min(...T)<5;
+  // Δ is only meaningful at rest and away from empty: the voltage curve is steep near empty
+  const load=!atRest?` (measured under ${fmt(Math.abs(j.current_a),1)} A load, so Δ reads high; recheck at rest)`
+    :lo.v<3.3?' (cells are nearly empty, where Δ reads high; recheck after charging)':'';
+  // Balance
+  if(j.cell_delta>DMED)out.push({lvl:atRest&&lo.v>=3.3?2:1,
+    msg:`Cells out of balance: Δ ${dmv} mV, cell #${lo.n} is ${Math.round((mean-lo.v)*1000)} mV below average${load}.`,
+    act:`Charge to 100 % and leave it on the charger 1–2 h so the BMS can balance. If cell #${lo.n} stays low after a few full charges, have the pack checked: that cell group may be weak.`});
+  else if(j.cell_delta>=DGOOD)out.push({lvl:1,
+    msg:`Slight imbalance: Δ ${dmv} mV${load}.`,
+    act:'Do a full charge and leave it on the charger an extra hour so the BMS can balance.'});
+  else out.push({lvl:0,msg:`Cells balanced (Δ ${dmv} mV).`});
+  // Persistently weak cell over the selected range
+  if(h.length>=20){
+    const cnt={};
+    for(const e of h){const c=cellsOf(e);let mi=-1,mv=Infinity;c.forEach((v,i)=>{if(v!=null&&v<mv){mv=v;mi=i}});if(mi>=0)cnt[mi]=(cnt[mi]||0)+1}
+    const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+    if(top&&top[1]/h.length>=0.8){
+      const cs=cellStats(h),i=+top[0],avgAll=cs.filter(Boolean).reduce((a,s)=>a+s.avg,0)/cs.filter(Boolean).length;
+      const gap=Math.round((avgAll-cs[i].avg)*1000);
+      if(gap>=25)out.push({lvl:1,
+        msg:`Cell #${i+1} is the lowest in ${Math.round(top[1]/h.length*100)} % of readings (avg ${gap} mV below the others).`,
+        act:`Keep an eye on cell #${i+1}: if its gap grows over time, it is the one limiting range.`});
+    }
+  }
+  // Cell voltage limits
+  const charge=cold?'Bring the pack to room temperature, then charge it right away':'Charge now';
+  if(lo.v<3.0)out.push({lvl:2,msg:`Cell #${lo.n} is at ${fmt(lo.v,3)} V: deeply discharged.`,
+    act:`${charge}. Staying below 3.0 V damages lithium cells; if it will not charge, do not force it — have it inspected.`});
+  else if(lo.v<3.3)out.push({lvl:1,msg:`Low charge: lowest cell ${fmt(lo.v,3)} V.`,
+    act:cold?'Bring the pack to room temperature, then recharge.':'Recharge soon; avoid leaving the pack empty.'});
+  if(hi.v>4.22)out.push({lvl:2,msg:`Cell #${hi.n} is at ${fmt(hi.v,3)} V: above the 4.20 V limit.`,
+    act:'Unplug the charger. Check that the charger is the original NIU one; a BMS that lets cells exceed 4.2 V needs inspection.'});
+  // Temperature
+  if(T.length){const tmax=Math.max(...T),tmin=Math.min(...T);
+    if(tmax>55)out.push({lvl:2,msg:`Pack is hot: ${tmax} °C.`,act:'Stop riding/charging and let it cool before using it again.'});
+    else if(tmax>45)out.push({lvl:1,msg:`Pack is warm: ${tmax} °C.`,act:'Let it cool before charging; avoid full-power riding until it does.'});
+    if(tmin<5&&lo.v>=3.3)out.push({lvl:1,msg:`Pack is cold: ${tmin} °C.`,act:'Do not charge below about 5 °C; warm it to room temperature first.'});
+    else if(tmin<5)out.push({lvl:1,msg:`Pack is cold: ${tmin} °C.`});
+  }
+  // Sensing sanity: BMS pack voltage vs sum of cells
+  if(j.pack_v!=null&&j.cell_sum!=null&&Math.abs(j.pack_v-j.cell_sum)>1)
+    out.push({lvl:1,msg:`BMS pack voltage (${fmt(j.pack_v,1)} V) and the sum of cells (${fmt(j.cell_sum,2)} V) differ by ${fmt(Math.abs(j.pack_v-j.cell_sum),2)} V.`,
+      act:'Check with a multimeter: a balance/sense wire or the BMS measurement may be faulty.'});
+  // Wear
+  if(j.cycles!=null&&j.cycles>=500)out.push({lvl:1,msg:`${j.cycles} charge cycles.`,act:'Some capacity loss is normal at this age; expect shorter range.'});
+  return out;
+}
+function renderHealth(j,h){
+  const el=document.getElementById('health');
+  if(!j){el.classList.add('hidden');return}
+  const f=assessHealth(j,h);
+  if(!f.length){el.classList.add('hidden');return}
+  const worst=Math.max(...f.map(x=>x.lvl));
+  const V=[{t:'Healthy',c:'var(--ok)'},{t:'Needs attention',c:'var(--warn)'},{t:'Action needed',c:'var(--bad)'}][worst];
+  const issues=f.filter(x=>x.lvl>0).sort((a,b)=>b.lvl-a.lvl);
+  const lvlC=['var(--ok)','var(--warn)','var(--bad)'];
+  const summary=issues.length
+    ?issues.map(x=>x.msg).join(' ')
+    :`${f.map(x=>x.msg).join(' ')} No problems found${j.cycles!=null?` · ${j.cycles} cycles`:''}.`;
+  el.style.borderLeftColor=V.c;
+  el.innerHTML=`<div class="verdict" style="color:${V.c}">${V.t}</div><p class="summary">${esc(summary)}</p>`
+    +(issues.some(x=>x.act)?`<ul>${issues.filter(x=>x.act).map(x=>`<li><b style="color:${lvlC[x.lvl]}">→</b> ${esc(x.act)}</li>`).join('')}</ul>`:'')
+    +`<div class="fine">Based on cell voltages and temperatures${h.length?` (${h.length} readings in range)`:''}. It cannot measure remaining capacity.</div>`;
+  el.classList.remove('hidden');
+}
+
+function renderMetrics(j){
+  const el=document.getElementById('metrics');
+  if(!j){el.innerHTML='';return}
+  const r=rateDelta(j.cell_delta);
+  el.innerHTML=[
+    card('Pack',fmt(j.pack_v,1),'V'),card('Σ cells',fmt(j.cell_sum,2),'V'),card('Battery est.',fmt(j.soc_est,1),'%'),
+    card('Current',fmt(j.current_a,1),'A'),card('SOC BMS',fmt(j.soc,0),'%'),card('Δ cells',fmt(j.cell_delta*1000,0),'mV'),
+    card('Time left',fmt(j.time_remain,1),'h'),card('Cycles',fmt(j.cycles,0)),
+    r?card('Balance',r.k,'','',{c:r.c}):''
+  ].join('')+(j.temps||[]).map((t,i)=>card(`T${i+1}`,t,'°C')).join('');
+}
+
+function cellStats(h){
+  const n=Math.max(0,...h.map(e=>cellsOf(e).length));
+  const out=[];
+  for(let i=0;i<n;i++){
+    let sum=0,c=0,mn=Infinity,mx=-Infinity;
+    for(const e of h){const v=cellsOf(e)[i];if(v==null)continue;sum+=v;c++;if(v<mn)mn=v;if(v>mx)mx=v}
+    out.push(c?{avg:sum/c,min:mn,max:mx}:null);
+  }
+  return out;
+}
+
+function renderCells(j,h){
+  const el=document.getElementById('cells');
+  if(!j||!j.cells||!j.cells.some(v=>v!=null)){el.innerHTML=viewSn?'<p class="meta">No cell data</p>':el.innerHTML;return}
+  const lo=j.v_min,hi=j.v_max,eps=0.0006,cs=cellStats(h);
+  const rows=j.cells.map((v,i)=>{
+    const s=cs[i];
+    const st=s?`<td class="dim">${fmt(s.avg,3)}</td><td class="dim">${fmt(s.min,3)}</td><td class="dim">${fmt(s.max,3)}</td>`:'<td></td><td></td><td></td>';
+    if(v==null)return `<tr><td>${i+1}</td><td class="now">—</td>${st}</tr>`;
+    const cls=Math.abs(v-lo)<eps?'cell-min':Math.abs(v-hi)<eps?'cell-max':'';
+    return `<tr class="${cls}"><td>${i+1}</td><td class="now">${fmt(v,3)}</td>${st}</tr>`;
+  }).join('');
+  const r=rateDelta(j.cell_delta);
+  const weak=j.cells.findIndex(v=>v!=null&&Math.abs(v-lo)<eps);
+  const hint=r.k==='BAD'&&weak>=0?`imbalance, check weakest cell #${weak+1}`:r.h;
+  el.innerHTML=`<table class="cell-table"><thead><tr><th>#</th><th>Now (V)</th><th>Avg</th><th>Min</th><th>Max</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="cell-summary">Δ ${fmt(j.cell_delta*1000,0)} mV (min ${fmt(lo,3)} V → max ${fmt(hi,3)} V) · Sum ${fmt(j.cell_sum,2)} V · Battery ${fmt(j.soc_est,1)} %<br>Balance: <b style="color:${r.c}">${r.k}</b> <span style="color:var(--muted)">(${hint})</span>
+<br><span style="color:var(--muted);font-weight:400">Avg / min / max over ${h.length} stored reading${h.length===1?'':'s'} in the selected range</span></div>`;
+}
+
+function renderStats(h){
+  const el=document.getElementById('stats');
+  const rngSel=document.getElementById('range');
+  document.getElementById('statRange').textContent=`· ${rngSel.options[rngSel.selectedIndex].text}`;
+  if(!viewSn||!h.length){el.innerHTML=`<p class="meta">${viewSn?'No readings in this range.':'No readings stored yet.'}</p>`;return}
+  const n=h.length,first=h[0],last=h[n-1],span=last.t-first.t;
+  const col=f=>h.map(f).filter(v=>v!=null&&isFinite(v));
+  const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const P=col(e=>e.p),D=col(e=>e.d),I=col(e=>e.i),T=h.flatMap(e=>e.tp||[]).filter(v=>v!=null),C=col(e=>e.cy);
+  // Weakest cell: the one that is the lowest most often
+  const lowCount={};
+  for(const e of h){const c=cellsOf(e);let mi=-1,mv=Infinity;c.forEach((v,i)=>{if(v!=null&&v<mv){mv=v;mi=i}});if(mi>=0)lowCount[mi]=(lowCount[mi]||0)+1}
+  const weak=Object.entries(lowCount).sort((a,b)=>b[1]-a[1])[0];
+  const m=loadMeta(viewSn),ok=m.ok||0,fail=m.fail||0;
+  const ad=avg(D),r=rateDelta(ad);
+  const sign=v=>v>0?'+':'';
+  el.innerHTML=[
+    card('First reading',fmtDT(first.t),'','',{sm:1}),
+    card('Last reading',fmtDT(last.t),'',`${fmtDur(Date.now()-last.t)} ago`,{sm:1}),
+    card('Time span',fmtDur(span)),
+    card('Readings',n,'',`of ${hist.length} stored${n>1?` · every ${fmtDur(span/(n-1))}`:''}`),
+    card('Read success',ok+fail?fmt(ok/(ok+fail)*100,1):'—',ok+fail?'%':'',`${ok} ok · ${fail} failed (all time)`),
+    card('Pack avg',fmt(avg(P),2),'V',P.length?`${fmt(Math.min(...P),1)}–${fmt(Math.max(...P),1)} V · ${sign(last.p-first.p)}${fmt(last.p-first.p,1)} V`:''),
+    card('Cell Δ avg',fmt(ad*1000,0),'mV',D.length?`max ${fmt(Math.max(...D)*1000,0)} mV · ${r.k}`:''),
+    card('Current avg',fmt(avg(I),1),I.length?'A':'',I.length?`${fmt(Math.min(...I),1)} to ${fmt(Math.max(...I),1)} A`:'not stored'),
+    card('Temperature',T.length?`${Math.min(...T)}–${Math.max(...T)}`:'—',T.length?'°C':'',T.length?`avg ${fmt(avg(T),1)} °C`:''),
+    card('Weakest cell',weak?`#${+weak[0]+1}`:'—','',weak?`lowest in ${fmt(weak[1]/n*100,0)} % of readings`:''),
+    card('Cycles',C.length?C[C.length-1]:'—','',C.length>1&&C[C.length-1]!==C[0]?`+${C[C.length-1]-C[0]} in range`:'')
+  ].join('');
+}
+
+function renderIdentity(j){
+  if(!viewSn){document.getElementById('identity').textContent='—';return}
+  const m=loadMeta(viewSn);
+  document.getElementById('identity').innerHTML=[
+    m.alias&&'Name: <b>'+esc(m.alias)+'</b>',
+    'BMS serial: <b>'+esc(viewSn)+'</b>',
+    (m.sw||m.hw)&&'Firmware '+esc(m.sw||'?')+' · Hardware '+esc(m.hw||'?'),
+    hist.length&&`${hist.length} readings stored since ${fmtDT(hist[0].t)}`
+  ].filter(Boolean).join(' · ')+'<br><span id="storage"></span>';
+  storageInfo().then(s=>{
+    const el=document.getElementById('storage');if(!el)return;
+    const mb=b=>b==null?'?':(b/1048576).toFixed(1)+' MB';
+    el.innerHTML=`Storage on this device: ${mb(s.used)} used of ${mb(s.quota)} · `
+      +(s.persisted?'<span class="okc">persistent</span> (browser will not clear it)'
+        :'<span class="stale">not marked persistent</span> (Chrome may clear it if the phone runs out of space)');
+  });
+}
+
+function drawChart(cv,series,o){
+  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;
+  if(!W)return;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,W,H);
+  g.font='11px system-ui,sans-serif';g.fillStyle='#8b9cb3';
+  let t0=Infinity,t1=-Infinity,v0=Infinity,v1=-Infinity;
+  for(const s of series)for(const [t,v] of s.pts){if(v==null)continue;
+    if(t<t0)t0=t;if(t>t1)t1=t;if(v<v0)v0=v;if(v>v1)v1=v;}
+  if(!isFinite(t0)){g.textAlign='center';g.fillText(viewSn?'No readings in this range':'Collecting data…',W/2,H/2);return}
+  for(const b of o.bands||[]){if(b.v>v0&&b.v<v1*1.5)v1=Math.max(v1,b.v)}
+  if(v1-v0<o.minSpan){const m=(v0+v1)/2;v0=m-o.minSpan/2;v1=m+o.minSpan/2}
+  const pad=(v1-v0)*.08;v0-=pad;v1+=pad;
+  if(o.floor!=null&&v0<o.floor)v0=o.floor;
+  if(t1===t0){t0-=30000;t1+=30000}
+  const L=46,R=10,T=8,B=20,pw=W-L-R,ph=H-T-B;
+  const X=t=>L+(t-t0)/(t1-t0)*pw,Y=v=>T+(v1-v)/(v1-v0)*ph;
+  g.lineWidth=1;g.strokeStyle='#2a3548';g.textAlign='right';g.textBaseline='middle';
+  for(let i=0;i<=4;i++){const v=v0+(v1-v0)*i/4,y=Y(v);
+    g.beginPath();g.moveTo(L,y);g.lineTo(W-R,y);g.stroke();g.fillText(v.toFixed(o.nd),L-5,y)}
+  for(const b of o.bands||[]){if(b.v<=v0||b.v>=v1)continue;const y=Y(b.v);
+    g.save();g.setLineDash([4,4]);g.strokeStyle=b.c;g.globalAlpha=.7;
+    g.beginPath();g.moveTo(L,y);g.lineTo(W-R,y);g.stroke();g.restore()}
+  const span=t1-t0;
+  const tf=span>172800000?{day:'2-digit',month:'short',hour12:false}
+    :span<3600000?{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}:{hour:'2-digit',minute:'2-digit',hour12:false};
+  const nt=Math.max(1,Math.min(3,Math.floor(pw/110)));
+  g.textBaseline='top';
+  for(let i=0;i<=nt;i++){const t=t0+span*i/nt;
+    g.textAlign=i===0?'left':i===nt?'right':'center';
+    g.fillText(span>172800000?new Date(t).toLocaleDateString([],tf):new Date(t).toLocaleTimeString([],tf),X(t),H-B+5)}
+  g.lineJoin='round';g.lineCap='round';
+  for(const s of series){
+    g.strokeStyle=s.c;g.fillStyle=s.c;g.lineWidth=s.w||1.5;g.globalAlpha=s.a||1;
+    g.beginPath();let pen=false,pt=null;
+    for(const [t,v] of s.pts){
+      if(v==null){pen=false;continue}
+      if(pen&&pt!=null&&t-pt>GAP)pen=false;
+      if(pen)g.lineTo(X(t),Y(v));else g.moveTo(X(t),Y(v));
+      pen=true;pt=t;
+    }
+    g.stroke();
+    if(s.pts.length===1){g.beginPath();g.arc(X(s.pts[0][0]),Y(s.pts[0][1]),2.5,0,7);g.fill()}
+    g.globalAlpha=1;
+  }
+}
+// Long histories are averaged into at most CHART_PTS buckets for drawing (Δ keeps the bucket max).
+// Statistics always use every stored reading.
+function thin(h,max){
+  if(h.length<=max)return h;
+  const k=Math.ceil(h.length/max),out=[];
+  const avg=a=>{const v=a.filter(x=>x!=null);return v.length?v.reduce((x,y)=>x+y,0)/v.length:null};
+  for(let i=0;i<h.length;i+=k){
+    const b=h.slice(i,i+k);
+    if(b[b.length-1].t-b[0].t>GAP){out.push(...b);continue} // keep gaps visible
+    const cs=b.map(cellsOf),n=Math.max(...cs.map(c=>c.length));
+    const ds=b.map(e=>e.d).filter(x=>x!=null);
+    out.push({t:b[b.length>>1].t,p:avg(b.map(e=>e.p)),s:avg(b.map(e=>e.s)),d:ds.length?Math.max(...ds):null,
+      c:[...Array(n)].map((_,j)=>avg(cs.map(c=>c[j])))});
+  }
+  return out;
+}
+function drawCharts(h){
+  if(!h)h=rangeHist();
+  const last=h[h.length-1],lc=last?cellsOf(last):[];
+  h=thin(h,CHART_PTS);
+  drawChart(document.getElementById('chPack'),[
+    {pts:h.map(p=>[p.t,p.p]),c:'#3b82f6',w:2},
+    {pts:h.map(p=>[p.t,p.s]),c:'#22c55e',w:1.5}
+  ],{nd:1,minSpan:1});
+  let lo=-1,hi=-1;
+  lc.forEach((v,i)=>{if(v==null)return;if(lo<0||v<lc[lo])lo=i;if(hi<0||v>lc[hi])hi=i});
+  const ser=[];
+  for(let i=0;i<lc.length;i++){if(i===lo||i===hi)continue;
+    ser.push({pts:h.map(p=>[p.t,cellsOf(p)[i]]),c:'#64748b',w:1,a:.55})}
+  if(hi>=0)ser.push({pts:h.map(p=>[p.t,cellsOf(p)[hi]]),c:'#facc15',w:2});
+  if(lo>=0)ser.push({pts:h.map(p=>[p.t,cellsOf(p)[lo]]),c:'#22d3ee',w:2});
+  drawChart(document.getElementById('chCells'),ser,{nd:3,minSpan:.05});
+  document.getElementById('cellKey').innerHTML=last
+    ?`<i class="key" style="background:#22d3ee"></i>#${lo+1} min · <i class="key" style="background:#facc15"></i>#${hi+1} max · <i class="key" style="background:#64748b"></i>others`:'';
+  const at=last?' <span style="color:var(--muted);font-weight:400">@ '+fmtTime(last.t)+'</span>':'';
+  document.getElementById('nowPack').innerHTML=last
+    ?`<span style="color:#3b82f6">${fmt(last.p,1)} V</span> · <span style="color:#22c55e">${fmt(last.s,2)} V</span>${at}`:'';
+  document.getElementById('nowCells').innerHTML=last
+    ?(()=>{const d=lc[hi]-lc[lo],rd=rateDelta(d);
+      return `<span style="color:#22d3ee">${fmt(lc[lo],3)}</span> – <span style="color:#facc15">${fmt(lc[hi],3)} V</span>`
+        +` · Δ <span style="color:${rd.c}">${fmt(d*1000,0)} mV</span>${at}`})():'';
+  const r=last?rateDelta(last.d):null;
+  document.getElementById('nowDelta').innerHTML=r
+    ?`${fmt(last.d*1000,0)} mV <span style="color:${r.c}">${r.k}</span>${at}`:'';
+  drawChart(document.getElementById('chDelta'),[
+    {pts:h.map(p=>[p.t,p.d==null?null:p.d*1000]),c:'#d8b4fe',w:2}
+  ],{nd:0,minSpan:20,floor:0,bands:[{v:DGOOD*1000,c:'#22c55e'},{v:DMED*1000,c:'#f59e0b'}]});
+}
+
+function exportCsv(){
+  if(!viewSn||!hist.length)return;
+  const n=Math.max(...hist.map(e=>cellsOf(e).length));
+  const head=['time','pack_v','cell_sum_v','cell_delta_v','current_a','soc_bms','soc_est','time_left_h','cycles','temps_c']
+    .concat([...Array(n)].map((_,i)=>`cell${i+1}_v`));
+  const q=v=>v==null?'':v;
+  const lines=hist.map(e=>[new Date(e.t).toISOString(),q(e.p),q(e.s),q(e.d),q(e.i),q(e.soc),q(e.se),q(e.tr),q(e.cy),(e.tp||[]).join(' ')]
+    .concat(cellsOf(e).map(v=>v==null?'':v.toFixed(3))).join(','));
+  const name=(loadMeta(viewSn).alias||viewSn).replace(/[^A-Za-z0-9_-]+/g,'_');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([head.join(',')+'\n'+lines.join('\n')+'\n'],{type:'text/csv'}));
+  a.download=`niu-bms-${name}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+
+document.getElementById('range').onchange=refresh;
+document.getElementById('bat').onchange=e=>{userPicked=e.target.value!==curSn;selectBattery(e.target.value)};
+document.getElementById('rename').onclick=()=>{
+  if(!viewSn)return;
+  const m=Object.assign({},loadMeta(viewSn));
+  const a=prompt(`Name for battery ${viewSn} (empty to remove):`,m.alias||'');
+  if(a===null)return;
+  const v=a.trim().slice(0,40);
+  if(v)m.alias=v;else delete m.alias;
+  saveMeta(m);fillBatSel();refresh();
+  if(curSn===viewSn&&live)setStatus(`<span class="okc">Connected</span> · ${esc(nameOf(curSn))} · last read ${fmtTime(live.t)}`);
+};
+document.getElementById('csv').onclick=exportCsv;
+document.getElementById('clr').onclick=async()=>{
+  if(!viewSn||!confirm(`Delete all ${hist.length} stored readings for ${nameOf(viewSn)}? This cannot be undone. The name is kept.`))return;
+  const sn=viewSn;
+  try{await clearReadings(sn)}catch(e){alert('Could not clear: '+e.message);return}
+  const m=Object.assign({},loadMeta(sn));delete m.ok;delete m.fail;delete m.lastT;await saveMeta(m);
+  if(viewSn===sn)hist=[];
+  fillBatSel();refresh();
+};
+window.addEventListener('resize',()=>drawCharts());
+
+// ---------- start ----------
+async function start(){
+  try{db=await openDb()}catch(e){setStatus(`<span class="err">Storage unavailable: ${esc(e.message)}</span>`);return}
+  await loadMetas();
+  await migrateLocalStorage();
+  askPersist();
+  // until the BMS answers, show the battery with the newest data
+  let best=null,bt=-1;
+  for(const sn of knownSns()){const t=metas[sn].lastT||0;if(t>bt){bt=t;best=sn}}
+  await selectBattery(best);
+  initUsb();
+}
+function initUsb(){
+if(!navigator.usb){
+  document.getElementById('unsupported').classList.remove('hidden');
+  document.getElementById('connect').disabled=true;
+}else{
+  document.getElementById('connect').onclick=async()=>{
+    askPersist();
+    try{connect(await navigator.usb.requestDevice({filters:CP210X_FILTERS}))}
+    catch(e){if(e.name!=='NotFoundError')setStatus(`<span class="err">${esc(e.message)}</span>`)}
+  };
+  document.getElementById('disconnect').onclick=()=>disconnect();
+  // Reconnect without a tap when a previously allowed dongle is plugged in
+  const isCp=d=>CP210X_FILTERS.some(f=>f.vendorId===d.vendorId&&f.productId===d.productId);
+  navigator.usb.addEventListener('connect',e=>{if(isCp(e.device))connect(e.device)});
+  navigator.usb.addEventListener('disconnect',e=>{if(port&&e.device===port.dev)disconnect('Dongle unplugged')});
+  navigator.usb.getDevices().then(ds=>{const d=ds.find(isCp);if(d)connect(d)});
+}
+}
+start();
+</script>
+</body>
+</html>
