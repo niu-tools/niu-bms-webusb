@@ -114,6 +114,10 @@ const CMD={
   pack:[0x60,0x42,0x75],cells:[0x6f,0x5b,0x9d],serial:[0x3c,0x43,0x52],
   hwsw:[0x35,0x35,0x3d],cycles:[0x5c,0x46,0x75]
 };
+// The two command bytes are a masked (address, length) read of the BMS's 256-byte map, plus checksum
+const readCmd=(addr,len)=>{const d=[(addr+0x33)&0xff,(len+0x33)&0xff];
+  return[...d,(PREFIX.slice(4).reduce((a,b)=>a+b,0)+d[0]+d[1])&0xff]};
+const FAULT_ADDR=0xd3,FAULT_LEN=0x1c; // active-fault records at 0xD3 and 0xE1; zeroed when the fault clears
 // Each byte is masked with +0x33 (mod 256): unmask per byte, never per word
 const unmask=b=>(b-0x33)&0xff;
 const u16=(p,o)=>(unmask(p[o])<<8)|unmask(p[o+1]);
@@ -138,7 +142,17 @@ function decodePack(p){
   if(soc<0||soc>100){soc=null;for(let i=2;i<Math.min(14,p.length);i++){const s=p[i]-0x33;if(s>=0&&s<=100){soc=s;break}}}
   o.soc=soc;
   if(p.length>6){const tr=p[6]-0x33;if(tr>=0&&tr<=200)o.time_remain=tr/10}
+  // Map address 0x35: non-zero = BMS lockout (button LED flashes, scooter refuses the battery)
+  o.status=p.length>8?unmask(p[8]):null;
   return o;
+}
+// Fault record at 0xD3: code, 0, then ss mm hh dd mo yy on the BMS clock (which may be off)
+function decodeFault(p){
+  if(!p||p.length<8)return null;
+  const b=Array.from(p,unmask),[ss,mm,hh,dd,mo,yy]=b.slice(2,8);
+  const ok=mo>=1&&mo<=12&&dd>=1&&dd<=31&&hh<24&&mm<60&&ss<60;
+  const z=n=>String(n).padStart(2,'0');
+  return{code:b[0],time:ok?`20${z(yy)}-${z(mo)}-${z(dd)} ${z(hh)}:${z(mm)}:${z(ss)}`:null};
 }
 function decodeCells(p){
   const out=[];
@@ -256,6 +270,7 @@ async function readBms(){
   Object.assign(j,decodeHwsw(raw.hwsw));
   // A battery swap needs an unplug, which fails at least one poll: only then may the serial change unseen
   j.serial_bms=decodeSerial(raw.serial)||(prevPollOk?prevSerial:null);
+  if(j.status){raw.fault=await transact(readCmd(FAULT_ADDR,FAULT_LEN));j.fault=decodeFault(raw.fault)}
   return j;
 }
 
@@ -390,13 +405,15 @@ const cellsOf=e=>e.m?e.m.map(x=>x==null?null:x/1000):(e.c||[]);
 function toEntry(j){
   const r3=v=>v==null?null:Math.round(v*1000)/1000;
   return{t:j.t,p:j.pack_v,s:r3(j.cell_sum),d:r3(j.cell_delta),m:j.cells.map(v=>v==null?null:Math.round(v*1000)),
-    i:j.current_a,soc:j.soc,se:j.soc_est==null?null:Math.round(j.soc_est*10)/10,tr:j.time_remain,tp:j.temps,cy:j.cycles};
+    i:j.current_a,soc:j.soc,se:j.soc_est==null?null:Math.round(j.soc_est*10)/10,tr:j.time_remain,tp:j.temps,cy:j.cycles,
+    st:j.status,ft:j.fault&&j.fault.time};
 }
 function fromEntry(e){
   const cells=cellsOf(e),vals=cells.filter(v=>v!=null);
   return{ok:true,t:e.t,pack_v:e.p,cell_sum:e.s,cell_delta:e.d,cells,
     v_min:vals.length?Math.min(...vals):null,v_max:vals.length?Math.max(...vals):null,
-    current_a:e.i,soc:e.soc,soc_est:e.se,time_remain:e.tr,temps:e.tp||[],cycles:e.cy};
+    current_a:e.i,soc:e.soc,soc_est:e.se,time_remain:e.tr,temps:e.tp||[],cycles:e.cy,
+    status:e.st,fault:e.st?{code:e.st,time:e.ft||null}:null};
 }
 
 async function onReading(j){
@@ -418,7 +435,7 @@ async function onReading(j){
     const age=live?` · last good read ${Math.round((Date.now()-live.t)/1000)}s ago`:'';
     setStatus(`<span class="err">${esc(err)}</span>${age}`);
   }
-  if(j.raw)document.getElementById('raw').textContent=Object.keys(CMD).map(k=>`${k.padEnd(7)} ${hex(j.raw[k])}`).join('\n');
+  if(j.raw)document.getElementById('raw').textContent=Object.keys(j.raw).map(k=>`${k.padEnd(7)} ${hex(j.raw[k])}`).join('\n');
   refresh();
 }
 
@@ -519,6 +536,28 @@ function assessHealth(j,h){
   }
   // Cell voltage limits
   const charge=cold?'Bring the pack to room temperature, then charge it right away':'Charge now';
+  // BMS lockout: the BMS sets a status code; the cause is inferred from the cells and temperatures
+  if(j.status){
+    const code='0x'+j.status.toString(16).padStart(2,'0');
+    const when=j.fault&&j.fault.time?`, logged ${j.fault.time} BMS clock`:'';
+    const above=Math.round((hi.v-mean)*1000),below=Math.round((mean-lo.v)*1000);
+    const tmax=T.length?Math.max(...T):null,tmin=T.length?Math.min(...T):null;
+    let msg,act;
+    if(hi.v>=4.15&&above>=10){
+      msg=`BMS lockout (code ${code}${when}): cell #${hi.n} is ${fmt(hi.v,3)} V, ${above} mV above the average, after charging. The button LED flashes and the scooter will not accept the battery.`;
+      act=`Bring cell #${hi.n} down to about ${fmt(mean+0.015,3)} V: bleed that cell group a little (≈50–300 mWh), then reconnect and check that the status reads OK. Seen clearing at 4.154 V. If it keeps happening after full charges, that group is out of balance and the BMS is not catching up.`;
+    }else if(lo.v<3.3||(below>=50&&lo.v<3.6)){
+      msg=`BMS lockout (code ${code}${when}): likely low voltage, cell #${lo.n} is ${fmt(lo.v,3)} V${below>=20?`, ${below} mV below the average`:''}. The button LED flashes and the scooter will not accept the battery.`;
+      act=`${cold?'Bring the pack to room temperature, then charge':'Charge'} it with the original charger. If the charger will not start (the BMS refuses charge with a cell this low), top up cell #${lo.n} alone, gently and at low current, until it reaches about 3.3 V, then charge the pack normally. If the cell group drops again quickly, it is weak: have it inspected.`;
+    }else if(tmax!=null&&(tmax>50||tmin<0)){
+      msg=`BMS lockout (code ${code}${when}): likely temperature, pack at ${tmax>50?tmax:tmin} °C.`;
+      act=tmax>50?'Let the pack cool to room temperature; the lockout should clear on its own.':'Bring the pack to room temperature; the lockout should clear on its own.';
+    }else{
+      msg=`BMS lockout (code ${code}${when}): cause not identified from the cell voltages or temperatures.`;
+      act='Note the code and the readings (Export CSV). Try a short charger plug-in, the battery button, and a key-on in the scooter, then read again.';
+    }
+    out.push({lvl:2,lock:true,msg,act});
+  }
   if(lo.v<3.0)out.push({lvl:2,msg:`Cell #${lo.n} is at ${fmt(lo.v,3)} V: deeply discharged.`,
     act:`${charge}. Staying below 3.0 V damages lithium cells; if it will not charge, do not force it — have it inspected.`});
   else if(lo.v<3.3)out.push({lvl:1,msg:`Low charge: lowest cell ${fmt(lo.v,3)} V.`,
@@ -546,7 +585,8 @@ function renderHealth(j,h){
   const f=assessHealth(j,h);
   if(!f.length){el.classList.add('hidden');return}
   const worst=Math.max(...f.map(x=>x.lvl));
-  const V=[{t:'Healthy',c:'var(--ok)'},{t:'Needs attention',c:'var(--warn)'},{t:'Action needed',c:'var(--bad)'}][worst];
+  const V=f.some(x=>x.lock)?{t:'Locked out by the BMS',c:'var(--bad)'}
+    :[{t:'Healthy',c:'var(--ok)'},{t:'Needs attention',c:'var(--warn)'},{t:'Action needed',c:'var(--bad)'}][worst];
   const issues=f.filter(x=>x.lvl>0).sort((a,b)=>b.lvl-a.lvl);
   const lvlC=['var(--ok)','var(--warn)','var(--bad)'];
   const summary=issues.length
@@ -567,6 +607,7 @@ function renderMetrics(j){
     card('Pack',fmt(j.pack_v,1),'V'),card('Σ cells',fmt(j.cell_sum,2),'V'),card('Battery est.',fmt(j.soc_est,1),'%'),
     card('Current',fmt(j.current_a,1),'A'),card('SOC BMS',fmt(j.soc,0),'%'),card('Δ cells',fmt(j.cell_delta*1000,0),'mV'),
     card('Time left',fmt(j.time_remain,1),'h'),card('Cycles',fmt(j.cycles,0)),
+    j.status!=null?card('BMS status',j.status?'LOCKOUT':'OK','',j.status?`code 0x${j.status.toString(16).padStart(2,'0')}`:'',{c:j.status?'var(--bad)':'var(--ok)'}):'',
     r?card('Balance',r.k,'','',{c:r.c}):''
   ].join('')+(j.temps||[]).map((t,i)=>card(`T${i+1}`,t,'°C')).join('');
 }
@@ -748,10 +789,10 @@ function drawCharts(h){
 function exportCsv(){
   if(!viewSn||!hist.length)return;
   const n=Math.max(...hist.map(e=>cellsOf(e).length));
-  const head=['time','pack_v','cell_sum_v','cell_delta_v','current_a','soc_bms','soc_est','time_left_h','cycles','temps_c']
+  const head=['time','pack_v','cell_sum_v','cell_delta_v','current_a','soc_bms','soc_est','time_left_h','cycles','temps_c','bms_status','fault_time_bms']
     .concat([...Array(n)].map((_,i)=>`cell${i+1}_v`));
   const q=v=>v==null?'':v;
-  const lines=hist.map(e=>[new Date(e.t).toISOString(),q(e.p),q(e.s),q(e.d),q(e.i),q(e.soc),q(e.se),q(e.tr),q(e.cy),(e.tp||[]).join(' ')]
+  const lines=hist.map(e=>[new Date(e.t).toISOString(),q(e.p),q(e.s),q(e.d),q(e.i),q(e.soc),q(e.se),q(e.tr),q(e.cy),(e.tp||[]).join(' '),q(e.st),q(e.ft)]
     .concat(cellsOf(e).map(v=>v==null?'':v.toFixed(3))).join(','));
   const name=(loadMeta(viewSn).alias||viewSn).replace(/[^A-Za-z0-9_-]+/g,'_');
   const a=document.createElement('a');
